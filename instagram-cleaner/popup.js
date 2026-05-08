@@ -45,6 +45,48 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  // ── Diagnose button ──────────────────────────────────────────────────────────
+  const diagBtn = document.getElementById("diag-btn");
+  if (diagBtn) {
+    diagBtn.addEventListener("click", async () => {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab.url.includes("instagram.com")) {
+        statusEl.textContent = "Please go to Instagram first.";
+        return;
+      }
+      diagBtn.disabled = true;
+      statusEl.textContent = "Running diagnosis...";
+      userList.innerHTML = "";
+
+      try {
+        await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
+      } catch (e) { /* already injected */ }
+
+      chrome.tabs.sendMessage(tab.id, { action: "diagnose" }, (res) => {
+        diagBtn.disabled = false;
+        if (chrome.runtime.lastError || !res) {
+          statusEl.textContent = "Diagnose failed: " + (chrome.runtime.lastError?.message || "no response");
+          return;
+        }
+        // Show results in the list
+        statusEl.textContent = "Diagnosis complete — see details below:";
+        const items = [
+          `🌐 URL: ${res.url}`,
+          `👤 Username detected: ${res.username || "❌ NONE — not on a profile page!"}`,
+          `🔗 Follower/following links: ${res.allLinks.length > 0 ? res.allLinks.join(" | ") : "❌ NONE FOUND"}`,
+          `📋 Stats <li> items: ${res.statsLis.length > 0 ? res.statsLis.join(" | ") : "none"}`,
+          `🔍 Text matches: ${res.textMatches.length > 0 ? res.textMatches.map(m => `[${m.tag}] "${m.text}" parent=${m.parentTag}(role=${m.parentRole}) href=${m.parentHref}`).join(" | ") : "none"}`,
+        ];
+        userList.innerHTML = items.map(txt => {
+          const li = document.createElement("li");
+          li.style.cssText = "font-size:10px;word-break:break-all;padding:4px 0;border-bottom:1px solid #eee;";
+          li.textContent = txt;
+          return li.outerHTML;
+        }).join("");
+      });
+    });
+  }
+
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.action === "update_status") {
       statusEl.textContent = message.text;
